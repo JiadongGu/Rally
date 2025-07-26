@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Freelancer Opportunities – Rallypoint</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+      h1 {
+        margin-bottom: 1rem;
+      }
+      .posting {
+        border-bottom: 1px solid #ddd;
+        padding: 1rem 0;
+      }
+      .posting:last-child {
+        border-bottom: none;
+      }
+      .posting h2 {
+        margin: 0 0 0.5rem 0;
+      }
+      .date {
+        font-size: 0.85rem;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Available Job Opportunities</h1>
+    {% for job in postings %}
+    <div class="posting">
+      <h2>{{ job["title"] }}</h2>
+      <p class="date">Posted at {{ job["posted_at"] }}</p>
+      <p>{{ job["description"] }}</p>
+    </div>
+    {% else %}
+    <p>No job postings are available at the moment. Please check back later.</p>
+    {% endfor %}
+  </body>
+</html>
