@@ -30,9 +30,7 @@ import json
 # Attempt to import the optional OpenAI client. If unavailable the application
 # will fall back to a simple heuristic for generating recommendations.
 try:
-    from openai import OpenAI
-    
-    client = OpenAI(api_key=api_key)  # type: ignore
+    import openai  # type: ignore
 except ImportError:
     openai = None  # type: ignore
 
@@ -44,24 +42,25 @@ except ImportError:
 # is present, and provides informative logging in the server console.
 OPENAI_AVAILABLE = False
 if openai and os.getenv("OPENAI_API_KEY"):
+    api_key = os.getenv("OPENAI_API_KEY")
     try:
-        api_key = os.getenv("OPENAI_API_KEY")
-        # Decide which API to use based on the version installed. In OpenAI
-        # Python client >=1.0.0 the ChatCompletion API has moved to
-        # client.chat.completions.create; earlier versions expose ChatCompletion
-        # directly. We attempt to detect the attribute to select the correct
-        # invocation. This test call uses minimal tokens to validate both the
-        # API key and network connectivity.
-        if hasattr(openai, "ChatCompletion"):
-              # old-style configuration
-            _ = client.chat.completions.create(model="gpt-4-turbo",
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=1,
-            temperature=0.0)
-        else:
-            # Newer SDK: instantiate a client and call the chat API.
+        # Determine whether we have the new-style OpenAI client. In the new
+        # SDK (>=1.0.0) the `OpenAI` class is available and should be used. In
+        # older versions this attribute does not exist, so we fall back to
+        # using the legacy `openai.ChatCompletion.create` API. We avoid
+        # accessing `openai.ChatCompletion` unless necessary to prevent
+        # triggering the APIRemovedInV1 error.
+        if hasattr(openai, "OpenAI"):
             client = openai.OpenAI(api_key=api_key)
             _ = client.chat.completions.create(
+                model="gpt-4-turbo",
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+                temperature=0.0,
+            )
+        else:
+            openai.api_key = api_key
+            _ = openai.ChatCompletion.create(
                 model="gpt-4-turbo",
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=1,
@@ -169,15 +168,12 @@ def generate_recommendations(description: str) -> Dict[str, object]:
                 },
                 {"role": "user", "content": description},
             ]
-            # Use the appropriate API based on the installed OpenAI SDK. In
-            # openai-python >= 1.0.0 there is no ChatCompletion class; instead
-            # we instantiate a client and call client.chat.completions.create.
-            if hasattr(openai, "ChatCompletion"):
-                response = client.chat.completions.create(model="gpt-4-turbo",
-                messages=messages,
-                max_tokens=200,
-                temperature=0.2)
-            else:
+            # Use the appropriate API based on the installed OpenAI SDK. If
+            # the new-style client class exists (introduced in openai-python
+            # >=1.0.0), instantiate it; otherwise use the legacy API. This
+            # avoids triggering the APIRemovedInV1 error by never accessing
+            # ChatCompletion directly unless it is required by older versions.
+            if hasattr(openai, "OpenAI"):
                 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
                 response = client.chat.completions.create(
                     model="gpt-4-turbo",
@@ -185,8 +181,28 @@ def generate_recommendations(description: str) -> Dict[str, object]:
                     max_tokens=200,
                     temperature=0.2,
                 )
-            content = response.choices[0].message.content
+            else:
+                response = openai.ChatCompletion.create(
+                    model="gpt-4-turbo",
+                    messages=messages,
+                    max_tokens=200,
+                    temperature=0.2,
+                )
+            # Extract the assistant message content. In older SDK versions the
+            # response object is dict-like and subscriptable; in newer versions
+            # it is a dataclass with attributes. Try dict-style access first
+            # and fall back to attribute access on TypeError.
+            try:
+                content = response["choices"][0]["message"]["content"]
+            except (TypeError, KeyError, IndexError):
+                content = response.choices[0].message.content
+            # Debug: log the raw model response for troubleshooting. This helps
+            # identify cases where the model might return unexpected values such
+            # as generic 'generalist contractor' recommendations. These prints
+            # will appear in the server console.
+            print("[AI] Raw response:", content)
             data = json.loads(content)
+            print("[AI] Parsed data:", data)
             # Validate the structure and provide defaults.
             return {
                 "specialties": data.get("specialties", []),
@@ -227,6 +243,9 @@ def generate_recommendations(description: str) -> Dict[str, object]:
         "tiler": ["tile", "tiling", "ceramic", "mosaic", "grout"]
         ,# Railway and locomotive engineering.
         "railway engineer": ["train", "locomotive", "rail", "railway"]
+        ,
+        # Boat and marine construction
+        "boat builder": ["boat", "sailboat", "ship", "yacht", "vessel", "hull", "marine"]
     }
     matched_specialties: List[str] = []
     # Identify specialties by looking for keyword hits.
@@ -263,6 +282,7 @@ def generate_recommendations(description: str) -> Dict[str, object]:
         "tiler": 50.0,
         "railway engineer": 75.0,
         "generalist contractor": 40.0,
+        "boat builder": 65.0,
     }
     # Use the average of specialty rates as the base hourly rate.
     rates = [base_rates.get(spec, 50.0) for spec in matched_specialties]
@@ -285,6 +305,7 @@ def generate_recommendations(description: str) -> Dict[str, object]:
         "tiler": "Tiling work",
         "railway engineer": "Railway engineering tasks",
         "generalist contractor": "General contracting tasks",
+        "boat builder": "Boat construction tasks",
     }
     components = [component_labels.get(spec, f"{spec} tasks") for spec in matched_specialties]
 
@@ -305,6 +326,7 @@ def generate_recommendations(description: str) -> Dict[str, object]:
         "tiler": 4,
         "railway engineer": 6,
         "generalist contractor": 2,
+        "boat builder": 5,
     }
     estimated_time = 0
     for spec in matched_specialties:
