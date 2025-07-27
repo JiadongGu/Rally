@@ -1,164 +1,102 @@
 """
-Database module for the Rallypoint web application.
+Database utilities for the Rallypoint application.
 
-This module provides helper functions to initialize the SQLite database and
-establish connections. It ensures that the required tables exist before
-the application begins serving requests. Tables include:
+This module encapsulates all direct interactions with the SQLite database.
+It exposes helper functions to initialize the database schema and provide
+connections in a context-managed fashion.
 
-* ``projects`` – stores client submissions with fields for name, email,
-  project title, description, status and a timestamp. The ``status``
-  defaults to ``Pending``.
-* ``postings`` – stores admin-created job postings visible to
-  freelancers. Each posting has a title, description and a timestamp.
+Tables
+------
+service_requests
+    Stores all client service submissions. Fields:
+        id INTEGER PRIMARY KEY AUTOINCREMENT
+        name TEXT NOT NULL
+        email TEXT NOT NULL
+        description TEXT NOT NULL
+        created_at TEXT (ISO-8601 timestamp)
 
-The database is persisted to a file named ``rallypoint.db`` in the
-application root. SQLite is used because it requires no external
-services and is sufficient for an MVP.
+job_postings
+    Stores job postings created by admins. Fields:
+        id INTEGER PRIMARY KEY AUTOINCREMENT
+        title TEXT NOT NULL
+        description TEXT NOT NULL
+        created_at TEXT (ISO-8601 timestamp)
 """
 
 import sqlite3
-from datetime import datetime
+from contextlib import contextmanager
 from pathlib import Path
 
 
-# Path to the SQLite database file. It lives alongside the Python
-# modules in the rallypoint package. Using a relative path keeps the
-# database portable and self‑contained.
-DB_PATH = Path(__file__).resolve().parent / "rallypoint.db"
-
-
-def get_connection() -> sqlite3.Connection:
-    """Return a new SQLite connection with row factory set to Row.
-
-    SQLite connections are not thread‑safe by default, so the
-    ``check_same_thread`` flag is disabled to allow FastAPI to use the
-    connection across different workers. Each call returns a new
-    connection; callers should close the connection when finished.
-
-    Returns:
-        sqlite3.Connection: A connection object configured for row
-        access by column name.
-    """
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+# Name of the SQLite database file.
+DB_NAME = "rallypoint.db"
 
 
 def init_db() -> None:
-    """Create database tables if they do not already exist.
+    """Initialise the SQLite database and create tables if they don't exist.
 
-    This function executes ``CREATE TABLE IF NOT EXISTS`` statements for
-    the ``projects`` and ``postings`` tables. It is safe to call this
-    function multiple times; the tables will only be created once. Any
-    schema changes should be handled via migrations in a more mature
-    version of the application.
+    This function should be called once at application startup. It creates
+    the required tables for service requests and job postings. The database
+    file lives in the root of the repository by default.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    # Create the projects table
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL,
-            status TEXT DEFAULT 'Pending',
-            created_at TEXT NOT NULL
+    db_path = Path(DB_NAME)
+    # Ensure the database directory exists (it's the project root, so fine).
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        # Create service_requests table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS service_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                description TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    # Create the postings table
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS postings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL,
-            posted_at TEXT NOT NULL
+        # Create job_postings table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_postings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    conn.commit()
-    conn.close()
+        conn.commit()
 
 
-def add_project(name: str, email: str, title: str, description: str) -> None:
-    """Insert a new project submission into the database.
+def reset_data() -> None:
+    """Clear all existing data from the database tables.
 
-    Args:
-        name: Client's name.
-        email: Client's email address.
-        title: Project title.
-        description: Project description.
+    This helper deletes every row from the ``service_requests`` and
+    ``job_postings`` tables. It can be used at application startup to ensure
+    that each run of the development server begins with an empty board. It is
+    intended for demonstration purposes and should not be used in production.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO projects (name, email, title, description, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (name, email, title, description, datetime.now().isoformat()),
-    )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM service_requests")
+        cursor.execute("DELETE FROM job_postings")
+        conn.commit()
 
 
-def get_all_projects() -> list[sqlite3.Row]:
-    """Retrieve all project submissions ordered by newest first.
+@contextmanager
+def get_db() -> sqlite3.Connection:
+    """Context manager for obtaining a SQLite database connection.
 
-    Returns:
-        A list of SQLite Row objects representing project entries.
+    Usage:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            ...
+
+    Ensures the connection is properly closed after use.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT * FROM projects
-        ORDER BY datetime(created_at) DESC
-        """
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-
-def add_posting(title: str, description: str) -> None:
-    """Insert a new job posting into the database.
-
-    Args:
-        title: Title of the freelance opportunity.
-        description: Detailed description of the opportunity.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO postings (title, description, posted_at)
-        VALUES (?, ?, ?)
-        """,
-        (title, description, datetime.now().isoformat()),
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_all_postings() -> list[sqlite3.Row]:
-    """Retrieve all job postings ordered by newest first.
-
-    Returns:
-        A list of SQLite Row objects representing job postings.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT * FROM postings
-        ORDER BY datetime(posted_at) DESC
-        """
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+    conn = sqlite3.connect(DB_NAME)
+    try:
+        yield conn
+    finally:
+        conn.close()

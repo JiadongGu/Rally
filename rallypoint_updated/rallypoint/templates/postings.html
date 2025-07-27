@@ -1,45 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Freelancer Opportunities – Rallypoint</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 2rem;
-      }
-      h1 {
-        margin-bottom: 1rem;
-      }
-      .posting {
-        border-bottom: 1px solid #ddd;
-        padding: 1rem 0;
-      }
-      .posting:last-child {
-        border-bottom: none;
-      }
-      .posting h2 {
-        margin: 0 0 0.5rem 0;
-      }
-      .date {
-        font-size: 0.85rem;
-        color: #666;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>Available Job Opportunities</h1>
-    {% for job in postings %}
-    <div class="posting">
-      <h2>{{ job["title"] }}</h2>
-      <p class="date">Posted at {{ job["posted_at"] }}</p>
-      <p>{{ job["description"] }}</p>
-    </div>
-    {% else %}
-    <p>No job postings are available at the moment. Please check back later.</p>
-    {% endfor %}
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rallypoint – Job Board</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Job Board</h1>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/admin">Admin Dashboard</a>
+        </nav>
+    </header>
+    <main>
+        <h2>Available Job Postings</h2>
+        {% if postings %}
+            {% for job in postings %}
+            <article class="job-card">
+                <h3>{{ job.title }}</h3>
+                <p class="created-at">Posted on {{ job.created_at }}</p>
+                <p>{{ job.description }}</p>
+                <div class="recommendations">
+                    <h4>AI Recommendations</h4>
+                    {% if job.recommendations.prohibited %}
+                        <p>{{ job.recommendations.message }}</p>
+                    {% else %}
+                    <ul>
+                        <li><strong>Recommended specialties:</strong> {{ job.recommendations.specialties | join(", ") }}</li>
+                        <li><strong>Number of people:</strong> {{ job.recommendations.num_people }}</li>
+                        <li><strong>Estimated hourly rate per person:</strong> £{{ job.recommendations.estimated_rate }}</li>
+                        <li><strong>Project components:</strong> {{ job.recommendations.components | join(", ") }}</li>
+                        <li><strong>Estimated time to hire:</strong> {{ job.recommendations.estimated_time }} week{{ 's' if job.recommendations.estimated_time > 1 else '' }}</li>
+                    </ul>
+                    {% if job.recommendations.tasks %}
+                    <h5>Task Breakdown</h5>
+                    <ul>
+                        {% for task in job.recommendations.tasks %}
+                        <li>
+                            <strong>{{ task.description }}:</strong>
+                            {{ task.num_people }} person{{ 's' if task.num_people > 1 else '' }}
+                            ({{ task.specialties | join(', ') }}) – hire in {{ task.estimated_time }} week{{ 's' if task.estimated_time > 1 else '' }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        {% else %}
+            <p>No job postings available at the moment. Please check back later.</p>
+        {% endif %}
+    </main>
+</body>
 </html>

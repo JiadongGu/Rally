@@ -1,6 +1,6 @@
-"""Rallypoint package.
+"""Rallypoint package init.
 
-This package contains the FastAPI application, database helpers and
-templates used to build the Rallypoint MVP. Importing from this
-package ensures that relative imports resolve correctly.
+The package exposes a FastAPI application in :mod:`rallypoint.main`.
 """
+
+__all__ = ["main"]
